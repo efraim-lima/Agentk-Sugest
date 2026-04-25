@@ -1,0 +1,94 @@
+.sidebar .sidebar-content {
+    background-image: linear-gradient(180deg, #2b2b2b, #1a1a1a);
+}
+
+.sidebar-image-container {
+    position: sticky;
+    top: 0;
+    z-index: 999;
+    background: inherit;
+    padding: 1rem 0;
+    text-align: center;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.sidebar img {
+    display: block;
+    margin: 0 auto;
+    width: 80px;
+    height: auto;
+}
+
+.sidebar-title {
+    text-align: center;
+    color: #ffffff;
+    padding: 0.5rem 0;
+    margin: 0;
+    font-size: 1.5rem;
+}
+
+.stButton>button {
+    width: 100%;
+}
+
+.main-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+    padding-bottom: 80px;
+}
+
+/* Disclaimer fixo na parte inferior */
+.disclaimer-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(90deg, rgba(30, 30, 30, 0.95), rgba(45, 45, 45, 0.95));
+    backdrop-filter: blur(10px);
+    color: #888;
+    text-align: center;
+    padding: 12px 20px;
+    font-size: 0.85em;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    z-index: 1000;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.3);
+}
+
+/* Força tema dark - fallback caso config.toml não funcione */
+.stApp {
+    background-color: #0e1117 !important;
+    color: #fafafa !important;
+}
+
+.stApp > header {
+    background-color: transparent !important;
+}
+
+.stApp .main .block-container {
+    background-color: #0e1117 !important;
+}
+
+/* Sidebar dark */
+.css-1d391kg {
+    background-color: #262730 !important;
+}
+
+/* Input fields dark */
+.stTextInput > div > div > input {
+    background-color: #262730 !important;
+    color: #fafafa !important;
+    border-color: #4a4a4a !important;
+}
+
+/* Buttons dark */
+.stButton > button {
+    background-color: #262730 !important;
+    color: #fafafa !important;
+    border-color: #4a4a4a !important;
+}
+
+.stButton > button:hover {
+    background-color: #ff6b35 !important;
+    border-color: #ff6b35 !important;
+}
