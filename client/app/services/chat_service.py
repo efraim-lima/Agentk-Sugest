@@ -188,7 +188,10 @@ class ChatService:
                 st.session_state.risky_authorized_pending_llm = False
             else:
                 try:
-                    gateway_url = "https://host.docker.internal:8080/validar"
+                    gateway_url = os.environ.get(
+                        "GATEWAY_VALIDATE_URL",
+                        "https://agentk-gateway:8080/validar"
+                    )
                     response_gateway = requests.post(
                         gateway_url, 
                         json={"prompt": ultimo_prompt}, 

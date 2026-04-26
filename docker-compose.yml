@@ -2,8 +2,8 @@ services:
   # Servidor MCP AgentK
   agentk-server:
     build:
-      context: .
-      dockerfile: server/Dockerfile
+      context: ./server
+      dockerfile: Dockerfile
     container_name: agentk-mcp-server
     ports:
       - "3333:3333"
@@ -13,15 +13,8 @@ services:
       - FASTMCP_PORT=${FASTMCP_PORT:-3333}
       - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-INFO}
       - KUBECONFIG=/app/config
-      # Logging AgentK
-      - AGENTK_LOG_LEVEL=${AGENTK_LOG_LEVEL:-DEBUG}
-      - AGENTK_LOG_DIR=/var/log/agentk
-      - AGENTK_LOG_MAX_MB=${AGENTK_LOG_MAX_MB:-10}
-      - AGENTK_LOG_BACKUPS=${AGENTK_LOG_BACKUPS:-5}
-      - AGENTK_SERVER_LOG_FILE=agentk-server.log
       # Passar variáveis do .env se existirem
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      
     volumes:
       # Windows (ajuste conforme necessário)
       # - ~/.kube/:/app/.kube/:ro
@@ -29,9 +22,6 @@ services:
 
       # Linux (comente se estiver usando Windows)
       - ~/.kube/config-embedded:/app/config:ro
-      # Volume compartilhado de logs
-      - agentk-logs:/var/log/agentk
-     
     networks:
       - agentk-network
       - minikube
@@ -40,11 +30,9 @@ services:
   # Cliente Streamlit AgentK
   agentk-client:
     build:
-      context: .
-      dockerfile: client/Dockerfile
+      context: ./client
+      dockerfile: Dockerfile
     container_name: agentk-streamlit-client
-    extra_hosts:
-      - "host.docker.internal:host-gateway" #### FOI ADICIONADO AQUI
     ports:
       - "8501:8501"
     environment:
@@ -55,27 +43,12 @@ services:
       - MCP_SERVER_URL=${MCP_SERVER_URL:-http://agentk-server:3333}
       # Chave da OpenAI (OBRIGATÓRIA - deve estar no .env)
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # Logging AgentK
-      - AGENTK_LOG_LEVEL=${AGENTK_LOG_LEVEL:-DEBUG}
-      - AGENTK_LOG_DIR=/var/log/agentk
-      - AGENTK_LOG_MAX_MB=${AGENTK_LOG_MAX_MB:-10}
-      - AGENTK_LOG_BACKUPS=${AGENTK_LOG_BACKUPS:-5}
-      - AGENTK_CLIENT_LOG_FILE=agentk-client.log
-      #- OPENAI_BASE_URL=http://host.docker.internal:8080/v1
-      #- HTTPS_PROXY=http://host.docker.internal:8080 ## Adicionado para o proxy
-      #- REQUESTS_CA_BUNDLE=/app/certs/gateway-ca.crt  ## Adicionado para o proxy
-      #- SSL_CERT_FILE=/app/certs/gateway-ca.crt  ## Adicionado para o proxy
-      #- HTTPIE_VERIFY_SSL=no ## Adicionado para o proxy
     networks:
       - agentk-network
     depends_on:
       agentk-server:
         condition: service_healthy
     restart: unless-stopped
-    volumes:
-      # Volume compartilhado de logs
-      - agentk-logs:/var/log/agentk
-      #- ${HOME}/certs/gateway-ca.crt:/app/certs/gateway-ca.crt:ro ## Adicionado para o proxy
 
 networks:
   agentk-network:
