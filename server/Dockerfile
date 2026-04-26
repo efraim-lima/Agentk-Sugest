@@ -18,14 +18,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiar arquivos de requisitos primeiro (para cache das camadas)
-COPY requirements.txt .
+COPY server/requirements.txt .
 
 # Instalar dependências Python
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copiar código da aplicação
-COPY app/ ./app/
+# Copiar código da aplicação e módulo de logs compartilhado
+COPY server/app/ ./app/
+COPY logs/ ./app/logs/
 
 # Definir propriedade dos arquivos para o usuário agentk
 RUN chown -R agentk:agentk /app

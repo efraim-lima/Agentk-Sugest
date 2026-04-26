@@ -121,6 +121,36 @@ class ChatService:
             
             # Registra timestamp da mensagem do assistente
             self.export_service.record_message_timestamp(st.session_state.message_count)
+    @st.dialog("Ação Restrita: Risco Detectado")
+    def _show_risky_auth_dialog(self):
+        st.warning("⚠️ O Gateway classificou esta ação como RISKY. Necessário privilégio administrativo.")
+        password = st.text_input("Senha de Administrador (Keycloak)", type="password")
+        if st.button("Autorizar"):
+            if self._verify_keycloak_password(password):
+                st.success("Autorizado com sucesso!")
+                st.session_state.risky_authorized_pending_llm = True
+                st.rerun()
+            else:
+                st.error("Senha inválida ou falha na autenticação.")
+
+    def _verify_keycloak_password(self, password: str) -> bool:
+        try:
+            token_url = "http://keycloak:8080/realms/agentk/protocol/openid-connect/token"
+            admin_user = os.environ.get("KEYCLOAK_ADMIN", "admin")
+            
+            # Tenta autenticar usando o client admin-cli que por padrão permite password grant
+            data = {
+                "client_id": "admin-cli",
+                "grant_type": "password",
+                "username": admin_user,
+                "password": password
+            }
+            
+            response = requests.post(token_url, data=data, timeout=5)
+            return response.status_code == 200
+        except Exception:
+            return False
+
     def render_chat_history(self) -> None:
         """Render the complete chat history."""
         for message in st.session_state.llm_client.history:
@@ -153,44 +183,53 @@ class ChatService:
                 break
 
         if ultimo_prompt:
-            try:
-                gateway_url = "http://host.docker.internal:8080/validar"
-                response_gateway = requests.post(
-                    gateway_url, 
-                    json={"prompt": ultimo_prompt}, 
-                    timeout=30
-                )
-                
-                # 1. Parsing do JSON retornado pelo Java
-                dados_gateway = response_gateway.json()
-                prompt_retornado = dados_gateway.get("prompt", "")
-                veredito = dados_gateway.get("veredito", "").upper()
+            # Se a requisição RISKY acabou de ser autorizada, pulamos a validação do Gateway e prosseguimos
+            if st.session_state.get("risky_authorized_pending_llm"):
+                st.session_state.risky_authorized_pending_llm = False
+            else:
+                try:
+                    gateway_url = "https://host.docker.internal:8080/validar"
+                    response_gateway = requests.post(
+                        gateway_url, 
+                        json={"prompt": ultimo_prompt}, 
+                        timeout=30,
+                        verify=False
+                    )
+                    
+                    # 1. Parsing do JSON retornado pelo Java
+                    dados_gateway = response_gateway.json()
+                    prompt_retornado = dados_gateway.get("prompt", "")
+                    veredito = dados_gateway.get("veredito", "").upper()
 
-                # 2. Verificação de Integridade: O Java processou o prompt correto?
-                if prompt_retornado != ultimo_prompt:
-                    st.error("🚨 Erro de Integridade: O prompt validado divergiu do original.")
+                    # 2. Verificação de Integridade: O Java processou o prompt correto?
+                    if prompt_retornado != ultimo_prompt:
+                        st.error("🚨 Erro de Integridade: O prompt validado divergiu do original.")
+                        st.stop()
+
+                    # 3. Decisão baseada no Veredito
+                    if veredito != "SAFE":
+                        if veredito == "RISKY":
+                            self._show_risky_auth_dialog()
+                            st.stop()  # Interrompe o fluxo e exibe o modal
+                            
+                        mensagens_bloqueio = {
+                            "SUSPECT": "⚠️ Prompt SUSPEITO detectado. Por favor, reformule sua solicitação.",
+                            "UNCERTAIN": "🔍 Veredito INCERTO. Tente descrever sua intenção de forma mais clara.",
+                            "UNSAFE": "🛑 Bloqueio Crítico: Violação de política de segurança detectada."
+                        }
+                        
+                        texto_alerta = mensagens_bloqueio.get(veredito, f"Bloqueio por política: {veredito}")
+                        st.warning(texto_alerta)
+                        
+                        # Mock da resposta para manter a interface Streamlit ativa
+                        return self._create_mock_response(texto_alerta)
+
+                except requests.exceptions.RequestException as e:
+                    st.error(f"⚠️ Falha de comunicação com o Gateway: {e}")
                     st.stop()
-
-                # 3. Decisão baseada no Veredito
-                if veredito != "SAFE":
-                    mensagens_bloqueio = {
-                        "SUSPECT": "⚠️ Prompt SUSPEITO detectado. Por favor, reformule sua solicitação.",
-                        "UNCERTAIN": "🔍 Veredito INCERTO. Tente descrever sua intenção de forma mais clara.",
-                        "UNSAFE": "🛑 Bloqueio Crítico: Violação de política de segurança detectada."
-                    }
-                    
-                    texto_alerta = mensagens_bloqueio.get(veredito, f"Bloqueio por política: {veredito}")
-                    st.warning(texto_alerta)
-                    
-                    # Mock da resposta para manter a interface Streamlit ativa
-                    return self._create_mock_response(texto_alerta)
-
-            except requests.exceptions.RequestException as e:
-                st.error(f"⚠️ Falha de comunicação com o Gateway: {e}")
-                st.stop()
-            except json.JSONDecodeError:
-                st.error("❌ Erro: O Gateway não retornou um JSON válido.")
-                st.stop()
+                except json.JSONDecodeError:
+                    st.error("❌ Erro: O Gateway não retornou um JSON válido.")
+                    st.stop()
 
         # Fluxo Normal (OpenAI)
         request_start = self.export_service.record_request_start()
