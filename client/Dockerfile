@@ -17,15 +17,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiar arquivos de requisitos primeiro (para cache das camadas)
-COPY client/requirements.txt .
+COPY Agentk-Sugest/client/requirements.txt .
 
 # Instalar dependências Python
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copiar código da aplicação e módulo de logs compartilhado
-COPY client/app/ ./app/
-COPY logs/ ./app/logs/
+COPY Agentk-Sugest/client/app/ ./app/
+COPY Agentk-Sugest/logs/ ./app/logs/
 
 # Definir propriedade dos arquivos para o usuário streamlit
 RUN chown -R streamlit:streamlit /app
