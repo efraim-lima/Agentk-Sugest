@@ -43,6 +43,7 @@ services:
       - MCP_SERVER_URL=${MCP_SERVER_URL:-http://agentk-server:3333}
       # Chave da OpenAI (OBRIGATÓRIA - deve estar no .env)
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GATEWAY_VALIDATE_URL=${GATEWAY_VALIDATE_URL:-https://agentk-gateway:8080/validar}
     networks:
       - agentk-network
     depends_on:
