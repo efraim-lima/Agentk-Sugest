@@ -2,8 +2,8 @@ services:
   # Servidor MCP AgentK
   agentk-server:
     build:
-      context: ./server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: server/Dockerfile
     container_name: agentk-mcp-server
     ports:
       - "3333:3333"
@@ -40,8 +40,8 @@ services:
   # Cliente Streamlit AgentK
   agentk-client:
     build:
-      context: ./client
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: client/Dockerfile
     container_name: agentk-streamlit-client
     extra_hosts:
       - "host.docker.internal:host-gateway" #### FOI ADICIONADO AQUI
