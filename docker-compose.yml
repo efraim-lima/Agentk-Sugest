@@ -53,8 +53,7 @@ services:
 
 networks:
   agentk-network:
-    #driver: bridge
-    external: true
+    driver: bridge
     name: agentk-network
   minikube:
     external: true
