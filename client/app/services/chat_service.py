@@ -192,6 +192,9 @@ class ChatService:
                         "GATEWAY_VALIDATE_URL",
                         "https://agentk-gateway:8080/validar"
                     )
+                    # Forçar HTTPS se não especificado (Fail-safe)
+                    if gateway_url.startswith("http://"):
+                         gateway_url = gateway_url.replace("http://", "https://")
                     response_gateway = requests.post(
                         gateway_url, 
                         json={"prompt": ultimo_prompt}, 
