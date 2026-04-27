@@ -24,6 +24,20 @@ chat_service = ChatService(st.session_state.llm_client)
 # Carrega e aplica os estilos CSS
 st.markdown(settings.load_css("main.css"), unsafe_allow_html=True)
 
+# Botão de Logout Flutuante
+# Fluxo: OAuth2 Proxy Sign-out -> Keycloak Logout -> App Home
+logout_url = (
+    "/oauth2/sign_out?rd=https://agentk.local/keycloak/realms/agentk/protocol/openid-connect/logout"
+    "?post_logout_redirect_uri=https://agentk.local/"
+)
+
+st.markdown(
+    f'<a href="{logout_url}" class="logout-button" target="_self">'
+    '   <span style="margin-right:8px;">🚪</span> Sair'
+    '</a>',
+    unsafe_allow_html=True
+)
+
 # Renderiza sidebar
 sidebar = Sidebar("Agent K", settings.LOGO_PATH)
 sidebar.render()
