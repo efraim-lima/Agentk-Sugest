@@ -11,6 +11,8 @@ import json
 import datetime
 import requests
 
+from app.utils.logger import logger
+
 class ChatService:
     """
     Service for managing chat interactions, with support for tool execution.
@@ -19,10 +21,24 @@ class ChatService:
     def __init__(self, llm_client: LLmClient):
         self.llm_client = llm_client
         self.chat_interface = ChatInterface()
+        self.logger = logger
         # Usa um serviço de exportação compartilhado na sessão
         if 'export_service' not in st.session_state:
             st.session_state.export_service = ExportService()
         self.export_service = st.session_state.export_service
+
+    def _get_user_info(self) -> str:
+        """Extrai a identidade do usuário dos headers do OAuth2 Proxy ou do contexto Streamlit."""
+        try:
+            # Tenta via st.context.headers (Streamlit 1.34+)
+            if hasattr(st, 'context') and 'X-Forwarded-Email' in st.context.headers:
+                return st.context.headers['X-Forwarded-Email']
+            # Fallback para o header de usuário se o email não estiver disponível
+            if hasattr(st, 'context') and 'X-Forwarded-User' in st.context.headers:
+                return st.context.headers['X-Forwarded-User']
+        except Exception:
+            pass
+        return os.environ.get("USER", "anonymous")
 
     def process_single_tool_call(self, call) -> None:
         try:
@@ -50,14 +66,20 @@ class ChatService:
                 await client.cleanup()
                 return tool_result
 
+            user = self._get_user_info()
+            self.logger.info("AUDIT | USER: %s | ACTION: TOOL_CALL | TOOL: %s | ARGS: %s", user, call.function.name, call.function.arguments)
+            
             call_result = run_task(do_call())
             
             # Registra o fim da chamada da ferramenta
             self.export_service.record_request_end(tool_start_time)
-
-            return ''.join(item.text for item in call_result.content if item.type == 'text')
+            
+            result_text = ''.join(item.text for item in call_result.content if item.type == 'text')
+            self.logger.info("AUDIT | USER: %s | ACTION: TOOL_RESULT | TOOL: %s | STATUS: SUCCESS", user, call.function.name)
+            return result_text
         except Exception as e:
-            return f"Error calling tool: {str(e)}"  
+            self.logger.error("AUDIT | USER: %s | ACTION: TOOL_RESULT | TOOL: %s | STATUS: ERROR | ERROR: %s", self._get_user_info(), call.function.name, str(e))
+            return f"Error calling tool: {str(e)}"
     
     def resolve_chat(self, response):
         llm_client = st.session_state.llm_client
@@ -212,11 +234,15 @@ class ChatService:
                         st.error("🚨 Erro de Integridade: O prompt validado divergiu do original.")
                         st.stop()
 
+                    user = self._get_user_info()
+                    self.logger.info("AUDIT | USER: %s | PROMPT: %s | GATEWAY_VERDICT: %s", user, ultimo_prompt, veredito)
+
                     # 3. Decisão baseada no Veredito
                     if veredito != "SAFE":
                         if veredito == "RISKY":
+                            self.logger.warning("AUDIT | USER: %s | STATUS: BLOCKED_PENDING_AUTH | VERDICT: RISKY", user)
                             self._show_risky_auth_dialog()
-                            st.stop()  # Interrompe o fluxo e exibe o modal
+                            st.stop()
                             
                         mensagens_bloqueio = {
                             "SUSPECT": "⚠️ Prompt SUSPEITO detectado. Por favor, reformule sua solicitação.",
@@ -225,9 +251,9 @@ class ChatService:
                         }
                         
                         texto_alerta = mensagens_bloqueio.get(veredito, f"Bloqueio por política: {veredito}")
+                        self.logger.warning("AUDIT | USER: %s | STATUS: BLOCKED | VERDICT: %s", user, veredito)
                         st.warning(texto_alerta)
                         
-                        # Mock da resposta para manter a interface Streamlit ativa
                         return self._create_mock_response(texto_alerta)
 
                 except requests.exceptions.RequestException as e:
@@ -241,6 +267,10 @@ class ChatService:
         request_start = self.export_service.record_request_start()
         response = self.llm_client.complete_chat(tools)
         self.export_service.record_request_end(request_start, response)
+        
+        assistant_reply = response.choices[0].message.content
+        self.logger.info("AUDIT | USER: %s | ACTION: LLM_RESPONSE | CONTENT_SNIPPET: %s...", self._get_user_info(), assistant_reply[:50] if assistant_reply else "")
+        
         return response
 
     def _create_mock_response(self, content):
