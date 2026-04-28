@@ -2,7 +2,7 @@ import sys
 import os
 
 # Adicionar caminhos necessários
-PROJECT_ROOT = "/home/efraim/Documents/GitHub/Guardrail/Agentk-Sugest"
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(PROJECT_ROOT)
 
 from logs.logging_config import get_logger, format_audit_log

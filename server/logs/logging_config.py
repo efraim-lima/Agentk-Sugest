@@ -21,7 +21,12 @@ import logging
 import logging.handlers
 import os
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
+
+# Forçar UTC para o logging.Formatter nativo
+logging.Formatter.converter = time.gmtime
 
 
 # ─── Parâmetros configuráveis via variável de ambiente ───────────────────────
@@ -61,7 +66,7 @@ LOG_BACKUP_COUNT: int = int(_env("AGENTK_LOG_BACKUPS", "5"))
 # ─── Formato das mensagens ────────────────────────────────────────────────────
 
 FORMATTER = logging.Formatter(
-    fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    fmt="%(asctime)sZ | %(levelname)-8s | %(name)s | %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
 
@@ -84,6 +89,32 @@ def _stdout_handler() -> logging.StreamHandler:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(FORMATTER)
     return handler
+
+
+def format_audit_log(
+    actor: str = "system",
+    action: str = "unknown",
+    resource: str = "none",
+    outcome: str = "not_specified",
+    source_ip: str = "unknown",
+    context_data: str = "N/A"
+) -> str:
+    """
+    Formata uma mensagem de auditoria seguindo o padrão exigido:
+    Timestamp: ... Actor/User Identification: ... Action/Event Type: ...
+    Object/Resource: ... Outcome: ... Source IP Address: ... Contextual Data: ...
+    """
+    # Usar datetime.now(timezone.utc) para garantir precisão no timestamp da mensagem
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return (
+        f"Timestamp: {timestamp} "
+        f"Actor/User Identification: {actor} "
+        f"Action/Event Type: {action} "
+        f"Object/Resource: {resource} "
+        f"Outcome: {outcome} "
+        f"Source IP Address: {source_ip} "
+        f"Contextual Data: {context_data}"
+    )
 
 
 # ─── Função pública ───────────────────────────────────────────────────────────

@@ -16,10 +16,17 @@ Uso:
 import os
 import sys
 
-# Garante que o diretório raiz do projeto (onde está a pasta logs/) esteja no path
-_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
-if _PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, _PROJECT_ROOT)
+# Busca o diretório 'logs' subindo na estrutura de pastas
+def _add_logs_to_path():
+    current = os.path.abspath(os.path.dirname(__file__))
+    for _ in range(5):
+        if os.path.isdir(os.path.join(current, "logs")):
+            if current not in sys.path:
+                sys.path.insert(0, current)
+            return
+        current = os.path.dirname(current)
+
+_add_logs_to_path()
 
 from logs.logging_config import get_logger, format_audit_log  # noqa: E402
 
