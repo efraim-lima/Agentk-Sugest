@@ -11,7 +11,7 @@ import json
 import datetime
 import requests
 
-from app.utils.logger import logger
+from app.utils.logger import logger, format_audit_log
 
 class ChatService:
     """
@@ -27,18 +27,25 @@ class ChatService:
             st.session_state.export_service = ExportService()
         self.export_service = st.session_state.export_service
 
-    def _get_user_info(self) -> str:
-        """Extrai a identidade do usuário dos headers do OAuth2 Proxy ou do contexto Streamlit."""
+    def _get_user_context(self) -> dict:
+        """Extrai a identidade do usuário e IP dos headers ou contexto Streamlit."""
+        context = {
+            "user": os.environ.get("USER", "anonymous"),
+            "ip": "unknown"
+        }
         try:
-            # Tenta via st.context.headers (Streamlit 1.34+)
-            if hasattr(st, 'context') and 'X-Forwarded-Email' in st.context.headers:
-                return st.context.headers['X-Forwarded-Email']
-            # Fallback para o header de usuário se o email não estiver disponível
-            if hasattr(st, 'context') and 'X-Forwarded-User' in st.context.headers:
-                return st.context.headers['X-Forwarded-User']
+            # Streamlit 1.34+ headers
+            if hasattr(st, 'context'):
+                h = st.context.headers
+                context["user"] = h.get('X-Forwarded-Email', h.get('X-Forwarded-User', context["user"]))
+                context["ip"] = h.get('X-Forwarded-For', h.get('X-Real-IP', "unknown"))
         except Exception:
             pass
-        return os.environ.get("USER", "anonymous")
+        return context
+
+    def _get_user_info(self) -> str:
+        """Mantido para compatibilidade simples, extrai apenas o ID do usuário."""
+        return self._get_user_context()["user"]
 
     def process_single_tool_call(self, call) -> None:
         try:
@@ -66,8 +73,15 @@ class ChatService:
                 await client.cleanup()
                 return tool_result
 
-            user = self._get_user_info()
-            self.logger.info("AUDIT | USER: %s | ACTION: TOOL_CALL | TOOL: %s | ARGS: %s", user, call.function.name, call.function.arguments)
+            ctx = self._get_user_context()
+            self.logger.info(format_audit_log(
+                actor=ctx["user"],
+                action="TOOL_CALL",
+                resource=call.function.name,
+                outcome="STARTED",
+                source_ip=ctx["ip"],
+                context_data=f"args={call.function.arguments}"
+            ))
             
             call_result = run_task(do_call())
             
@@ -75,10 +89,24 @@ class ChatService:
             self.export_service.record_request_end(tool_start_time)
             
             result_text = ''.join(item.text for item in call_result.content if item.type == 'text')
-            self.logger.info("AUDIT | USER: %s | ACTION: TOOL_RESULT | TOOL: %s | STATUS: SUCCESS", user, call.function.name)
+            self.logger.info(format_audit_log(
+                actor=ctx["user"],
+                action="TOOL_RESULT",
+                resource=call.function.name,
+                outcome="SUCCESS",
+                source_ip=ctx["ip"]
+            ))
             return result_text
         except Exception as e:
-            self.logger.error("AUDIT | USER: %s | ACTION: TOOL_RESULT | TOOL: %s | STATUS: ERROR | ERROR: %s", self._get_user_info(), call.function.name, str(e))
+            ctx = self._get_user_context()
+            self.logger.error(format_audit_log(
+                actor=ctx["user"],
+                action="TOOL_RESULT",
+                resource=call.function.name,
+                outcome="ERROR",
+                source_ip=ctx["ip"],
+                context_data=f"error={str(e)}"
+            ))
             return f"Error calling tool: {str(e)}"
     
     def resolve_chat(self, response):
@@ -234,13 +262,27 @@ class ChatService:
                         st.error("🚨 Erro de Integridade: O prompt validado divergiu do original.")
                         st.stop()
 
-                    user = self._get_user_info()
-                    self.logger.info("AUDIT | USER: %s | PROMPT: %s | GATEWAY_VERDICT: %s", user, ultimo_prompt, veredito)
+                    ctx = self._get_user_context()
+                    self.logger.info(format_audit_log(
+                        actor=ctx["user"],
+                        action="GATEWAY_VALIDATION",
+                        resource="prompt",
+                        outcome=veredito,
+                        source_ip=ctx["ip"],
+                        context_data=f"prompt_snippet={ultimo_prompt[:50]}..."
+                    ))
 
                     # 3. Decisão baseada no Veredito
                     if veredito != "SAFE":
                         if veredito == "RISKY":
-                            self.logger.warning("AUDIT | USER: %s | STATUS: BLOCKED_PENDING_AUTH | VERDICT: RISKY", user)
+                            self.logger.warning(format_audit_log(
+                                actor=ctx["user"],
+                                action="GATEWAY_BLOCK",
+                                resource="prompt",
+                                outcome="BLOCKED_PENDING_AUTH",
+                                source_ip=ctx["ip"],
+                                context_data="verdict=RISKY"
+                            ))
                             self._show_risky_auth_dialog()
                             st.stop()
                             
@@ -251,7 +293,14 @@ class ChatService:
                         }
                         
                         texto_alerta = mensagens_bloqueio.get(veredito, f"Bloqueio por política: {veredito}")
-                        self.logger.warning("AUDIT | USER: %s | STATUS: BLOCKED | VERDICT: %s", user, veredito)
+                        self.logger.warning(format_audit_log(
+                            actor=ctx["user"],
+                            action="GATEWAY_BLOCK",
+                            resource="prompt",
+                            outcome="BLOCKED",
+                            source_ip=ctx["ip"],
+                            context_data=f"verdict={veredito}"
+                        ))
                         st.warning(texto_alerta)
                         
                         return self._create_mock_response(texto_alerta)
@@ -269,7 +318,15 @@ class ChatService:
         self.export_service.record_request_end(request_start, response)
         
         assistant_reply = response.choices[0].message.content
-        self.logger.info("AUDIT | USER: %s | ACTION: LLM_RESPONSE | CONTENT_SNIPPET: %s...", self._get_user_info(), assistant_reply[:50] if assistant_reply else "")
+        ctx = self._get_user_context()
+        self.logger.info(format_audit_log(
+            actor=ctx["user"],
+            action="LLM_RESPONSE",
+            resource="assistant_message",
+            outcome="SUCCESS",
+            source_ip=ctx["ip"],
+            context_data=f"content_snippet={assistant_reply[:50] if assistant_reply else ''}..."
+        ))
         
         return response
 

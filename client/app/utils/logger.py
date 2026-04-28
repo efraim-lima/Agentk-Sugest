@@ -21,7 +21,7 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from logs.logging_config import get_logger  # noqa: E402
+from logs.logging_config import get_logger, format_audit_log  # noqa: E402
 
 LOG_FILE = os.getenv("AGENTK_CLIENT_LOG_FILE", "agentk-client.log")
 

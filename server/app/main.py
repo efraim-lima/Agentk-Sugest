@@ -4,7 +4,7 @@ from mcp.server.fastmcp import FastMCP
 from services.k8s.K8sExtractor import K8sExtractor
 from services.k8s.K8sApplier import K8sApplier
 from datetime import datetime
-from utils.logger import logger
+from utils.logger import logger, format_audit_log
 
 # Forçar UTF-8 para entrada/saída
 sys.stdout.reconfigure(encoding='utf-8')
@@ -210,15 +210,33 @@ try:
             - aplicar_yaml_no_cluster(multi_resource_yaml)  # Múltiplos recursos
         """
         try:
-            logger.info("AUDIT | ACTION: APPLY_YAML | NAMESPACE: %s | CONTENT_SIZE: %d chars", namespace, len(yaml_content))
+            logger.info(format_audit_log(
+                actor="AgentK-Server",
+                action="APPLY_YAML",
+                resource=f"namespace/{namespace}",
+                outcome="STARTED",
+                context_data=f"content_size={len(yaml_content)} chars"
+            ))
             applier = K8sApplier(config_file=k8s_config_file)
             
             result = applier.apply_yaml_content(yaml_content, namespace, skip_dry_run=skip_dry_run)
             
             if result.get("success"):
-                logger.info("AUDIT | ACTION: APPLY_YAML | STATUS: SUCCESS | APPLIED: %s", result.get("applied_resources", []))
+                logger.info(format_audit_log(
+                    actor="AgentK-Server",
+                    action="APPLY_YAML",
+                    resource=f"namespace/{namespace}",
+                    outcome="SUCCESS",
+                    context_data=f"applied={result.get('applied_resources', [])}"
+                ))
             else:
-                logger.error("AUDIT | ACTION: APPLY_YAML | STATUS: FAILED | ERROR: %s", result.get("error", "Erro parcial"))
+                logger.error(format_audit_log(
+                    actor="AgentK-Server",
+                    action="APPLY_YAML",
+                    resource=f"namespace/{namespace}",
+                    outcome="FAILED",
+                    context_data=f"error={result.get('error', 'Erro parcial')}"
+                ))
             
             # Padronizar formato de resposta
             response = {
@@ -305,14 +323,31 @@ try:
                 - error (str): Mensagem de erro caso falhe
         """
         try:
-            logger.warning("AUDIT | ACTION: DELETE_RESOURCE | TYPE: %s | NAME: %s | NAMESPACE: %s", resource_type, name, namespace)
+            logger.warning(format_audit_log(
+                actor="AgentK-Server",
+                action="DELETE_RESOURCE",
+                resource=f"{resource_type}/{name}",
+                outcome="STARTED",
+                context_data=f"namespace={namespace}"
+            ))
             applier = K8sApplier(config_file=k8s_config_file)
             result = applier.delete_resource(resource_type, name, namespace)
             
             if result.get("success"):
-                logger.info("AUDIT | ACTION: DELETE_RESOURCE | STATUS: SUCCESS | RESOURCE: %s/%s", resource_type, name)
+                logger.info(format_audit_log(
+                    actor="AgentK-Server",
+                    action="DELETE_RESOURCE",
+                    resource=f"{resource_type}/{name}",
+                    outcome="SUCCESS"
+                ))
             else:
-                logger.error("AUDIT | ACTION: DELETE_RESOURCE | STATUS: FAILED | ERROR: %s", result.get("error", "Erro ao deletar"))
+                logger.error(format_audit_log(
+                    actor="AgentK-Server",
+                    action="DELETE_RESOURCE",
+                    resource=f"{resource_type}/{name}",
+                    outcome="FAILED",
+                    context_data=f"error={result.get('error', 'Erro ao deletar')}"
+                ))
             
             return result
             return result
