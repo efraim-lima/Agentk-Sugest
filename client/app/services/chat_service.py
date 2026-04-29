@@ -248,7 +248,7 @@ class ChatService:
                     response_gateway = requests.post(
                         gateway_url, 
                         json={"prompt": ultimo_prompt}, 
-                        timeout=30,
+                        timeout=90,
                         verify=False
                     )
                     
