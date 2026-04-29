@@ -9,6 +9,7 @@ from app.services.export_service import ExportService
 import streamlit as st
 import json
 import datetime
+import urllib.parse
 import requests
 
 from app.utils.logger import logger, format_audit_log
@@ -244,16 +245,51 @@ class ChatService:
                     )
                     # Forçar HTTPS se não especificado (Fail-safe)
                     if gateway_url.startswith("http://"):
-                         gateway_url = gateway_url.replace("http://", "https://")
-                    response_gateway = requests.post(
-                        gateway_url, 
-                        json={"prompt": ultimo_prompt}, 
-                        timeout=90,
+                        gateway_url = gateway_url.replace("http://", "https://")
+
+                    # ---- Step 1: submit assíncrono à fila do Gateway ----
+                    # Retorna HTTP 202 imediatamente com {job_id, status:"QUEUED"}
+                    submit_response = requests.post(
+                        gateway_url,
+                        json={"prompt": ultimo_prompt},
+                        timeout=30,
                         verify=False
                     )
-                    
+
+                    if submit_response.status_code == 202:
+                        # Novo fluxo assíncrono: obter job_id e fazer long-poll
+                        submit_data = submit_response.json()
+                        job_id = submit_data.get("job_id")
+
+                        if not job_id:
+                            raise ValueError("Gateway não retornou um job_id válido.")
+
+                        # Derivar URL do endpoint de resultado a partir da URL de validação
+                        parsed_url = urllib.parse.urlparse(gateway_url)
+                        result_url = urllib.parse.urlunparse(
+                            parsed_url._replace(path=f"/resultado/{job_id}")
+                        )
+
+                        # ---- Step 2: long-poll — aguarda o veredito sem timeout de conexão ----
+                        # timeout=130 é margem acima do OLLAMA_RESULT_TIMEOUT_SECONDS=120 do servidor
+                        result_response = requests.get(
+                            result_url,
+                            timeout=130,
+                            verify=False
+                        )
+                        dados_gateway = result_response.json()
+
+                        # Tratar caso em que o servidor ainda está processando (timeout do servidor)
+                        if result_response.status_code == 202:
+                            st.error("⚠️ O Gateway não concluiu o processamento a tempo. Tente novamente.")
+                            st.session_state.is_processing = False
+                            st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
+                            st.stop()
+                    else:
+                        # Fallback: resposta síncrona legada (compatibilidade retroativa)
+                        dados_gateway = submit_response.json()
+
                     # 1. Parsing do JSON retornado pelo Java
-                    dados_gateway = response_gateway.json()
                     prompt_retornado = dados_gateway.get("prompt", "")
                     veredito = dados_gateway.get("veredito", "").upper()
 
