@@ -261,6 +261,7 @@ class ChatService:
                     if prompt_retornado != ultimo_prompt:
                         st.error("🚨 Erro de Integridade: O prompt validado divergiu do original.")
                         st.session_state.is_processing = False
+                        st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
                         st.stop()
 
                     ctx = self._get_user_context()
@@ -286,6 +287,7 @@ class ChatService:
                             ))
                             self._show_risky_auth_dialog()
                             st.session_state.is_processing = False
+                            st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
                             st.stop()
                             
                         mensagens_bloqueio = {
@@ -310,10 +312,12 @@ class ChatService:
                 except requests.exceptions.RequestException as e:
                     st.error(f"⚠️ Falha de comunicação com o Gateway: {e}")
                     st.session_state.is_processing = False
+                    st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
                     st.stop()
                 except json.JSONDecodeError:
                     st.error("❌ Erro: O Gateway não retornou um JSON válido.")
                     st.session_state.is_processing = False
+                    st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
                     st.stop()
 
         # Fluxo Normal (OpenAI)

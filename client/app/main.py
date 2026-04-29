@@ -71,6 +71,9 @@ resume_risky = st.session_state.get("risky_authorized_pending_llm", False)
 
 if prompt or resume_risky:
     if prompt:
+        # Sinaliza início para automação
+        st.components.v1.html("<script>window.parent.document.body.removeAttribute('data-agentk-ready');</script>", height=0)
+        
         st.session_state.is_processing = True
         st.session_state.llm_client.add_user_message(prompt)
         
@@ -94,6 +97,8 @@ if prompt or resume_risky:
             if response is not None:
                 chat_service.resolve_chat(response)
     st.session_state.is_processing = False
+    # Sinaliza fim para automação
+    st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
 
 # Fecha o container principal
 st.markdown('</div>', unsafe_allow_html=True)
