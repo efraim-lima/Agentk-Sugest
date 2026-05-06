@@ -172,6 +172,7 @@ class ChatService:
             
             # Registra timestamp da mensagem do assistente
             self.export_service.record_message_timestamp(st.session_state.message_count)
+
     @st.dialog("Ação Restrita: Risco Detectado")
     def _show_risky_auth_dialog(self):
         st.warning("⚠️ O Gateway classificou esta ação como RISKY. Necessário privilégio administrativo.")
@@ -226,6 +227,7 @@ class ChatService:
     def process_llm_request(self, tools=[]):
         """
         Processa requisição com validação de integridade e veredito via JSON.
+        Versão de Teste: Bypassa OpenAI e exibe apenas o veredito do Gateway.
         """
         ultimo_prompt = ""
         for message in reversed(self.llm_client.history):
@@ -235,128 +237,127 @@ class ChatService:
 
         if ultimo_prompt:
             # Se a requisição RISKY acabou de ser autorizada, pulamos a validação do Gateway e prosseguimos
-            if st.session_state.get("risky_authorized_pending_llm"):
-                st.session_state.risky_authorized_pending_llm = False
-            else:
-                try:
-                    gateway_url = os.environ.get(
-                        "GATEWAY_VALIDATE_URL",
-                        "https://agentk-gateway:8080/validar"
-                    )
-                    # Forçar HTTPS se não especificado (Fail-safe)
-                    if gateway_url.startswith("http://"):
-                        gateway_url = gateway_url.replace("http://", "https://")
+            # if st.session_state.get("risky_authorized_pending_llm"):
+            #     st.session_state.risky_authorized_pending_llm = False
+            # else:
+            try:
+                gateway_url = os.environ.get(
+                    "GATEWAY_VALIDATE_URL",
+                    "https://agentk-gateway:8080/validar"
+                )
+                if gateway_url.startswith("http://"):
+                    gateway_url = gateway_url.replace("http://", "https://")
 
-                    # ---- Step 1: submit assíncrono à fila do Gateway ----
-                    # Retorna HTTP 202 imediatamente com {job_id, status:"QUEUED"}
-                    submit_response = requests.post(
-                        gateway_url,
-                        json={"prompt": ultimo_prompt},
-                        timeout=30,
-                        verify=False
-                    )
+                # ---- Step 1: submit assíncrono à fila do Gateway ----
+                submit_response = requests.post(
+                    gateway_url,
+                    json={"prompt": ultimo_prompt},
+                    headers={"X-Test-Flow": "true"},
+                    timeout=30,
+                    verify=False
+                )
 
-                    if submit_response.status_code == 202:
-                        # Novo fluxo assíncrono: obter job_id e fazer long-poll
-                        submit_data = submit_response.json()
-                        job_id = submit_data.get("job_id")
+                if submit_response.status_code == 202:
+                    submit_data = submit_response.json()
+                    job_id = submit_data.get("job_id")
 
-                        if not job_id:
-                            raise ValueError("Gateway não retornou um job_id válido.")
+                        # if not job_id:
+                        #     raise ValueError("Gateway não retornou um job_id válido.")
 
                         # Derivar URL do endpoint de resultado a partir da URL de validação
-                        parsed_url = urllib.parse.urlparse(gateway_url)
-                        result_url = urllib.parse.urlunparse(
-                            parsed_url._replace(path=f"/resultado/{job_id}")
-                        )
+                    parsed_url = urllib.parse.urlparse(gateway_url)
+                    result_url = urllib.parse.urlunparse(
+                        parsed_url._replace(path=f"/resultado/{job_id}")
+                    )
 
-                        # ---- Step 2: long-poll — aguarda o veredito sem timeout de conexão ----
-                        # timeout=130 é margem acima do OLLAMA_RESULT_TIMEOUT_SECONDS=120 do servidor
-                        result_response = requests.get(
-                            result_url,
-                            timeout=130,
-                            verify=False
-                        )
-                        dados_gateway = result_response.json()
+                    # ---- Step 2: long-poll ----
+                    result_response = requests.get(
+                        result_url,
+                        headers={"X-Test-Flow": "true"},
+                        timeout=130,
+                        verify=False
+                    )
+                    dados_gateway = result_response.json()
 
                         # Tratar caso em que o servidor ainda está processando (timeout do servidor)
-                        if result_response.status_code == 202:
-                            st.error("⚠️ O Gateway não concluiu o processamento a tempo. Tente novamente.")
-                            st.session_state.is_processing = False
-                            st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
-                            st.stop()
-                    else:
-                        # Fallback: resposta síncrona legada (compatibilidade retroativa)
-                        dados_gateway = submit_response.json()
+                        # if result_response.status_code == 202:
+                        #     st.error("⚠️ O Gateway não concluiu o processamento a tempo. Tente novamente.")
+                        #     st.session_state.is_processing = False
+                        #     st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
+                        #     st.stop()
+                else:
+                    dados_gateway = submit_response.json()
 
-                    # 1. Parsing do JSON retornado pelo Java
-                    prompt_retornado = dados_gateway.get("prompt", "")
-                    veredito = dados_gateway.get("veredito", "").upper()
+                veredito = dados_gateway.get("veredito", "").upper()
+                prompt_retornado = dados_gateway.get("prompt", "")
 
-                    # 2. Verificação de Integridade: O Java processou o prompt correto?
-                    if prompt_retornado != ultimo_prompt:
-                        st.error("🚨 Erro de Integridade: O prompt validado divergiu do original.")
-                        st.session_state.is_processing = False
-                        st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
-                        st.stop()
+                # Verificação de Integridade
+                if prompt_retornado != ultimo_prompt:
+                    st.error("🚨 Erro de Integridade: O prompt validado divergiu do original.")
+                    # st.session_state.is_processing = False
+                    # st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
+                    # st.stop()
 
-                    ctx = self._get_user_context()
-                    self.logger.info(format_audit_log(
-                        actor=ctx["user"],
-                        action="GATEWAY_VALIDATION",
-                        resource="prompt",
-                        outcome=veredito,
-                        source_ip=ctx["ip"],
-                        context_data=f"prompt_snippet={ultimo_prompt[:50]}..."
-                    ))
+                ctx = self._get_user_context()
+                self.logger.info(format_audit_log(
+                    actor=ctx["user"],
+                    action="GATEWAY_VALIDATION",
+                    resource="prompt",
+                    outcome=veredito,
+                    source_ip=ctx["ip"],
+                    context_data=f"test_mode=true, verdict={veredito}"
+                ))
 
-                    # 3. Decisão baseada no Veredito
-                    if veredito != "SAFE":
-                        if veredito == "RISKY":
-                            self.logger.warning(format_audit_log(
-                                actor=ctx["user"],
-                                action="GATEWAY_BLOCK",
-                                resource="prompt",
-                                outcome="BLOCKED_PENDING_AUTH",
-                                source_ip=ctx["ip"],
-                                context_data="verdict=RISKY"
-                            ))
-                            self._show_risky_auth_dialog()
-                            st.session_state.is_processing = False
-                            st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
-                            st.stop()
+                if veredito != "SAFE":
+                        # TODO: [TEMPORÁRIO] Bloco RISKY desabilitado para testes — reativar antes do deploy
+                        # if veredito == "RISKY":
+                        #     self.logger.warning(format_audit_log(
+                        #         actor=ctx["user"],
+                        #         action="GATEWAY_BLOCK",
+                        #         resource="prompt",
+                        #         outcome="BLOCKED_PENDING_AUTH",
+                        #         source_ip=ctx["ip"],
+                        #         context_data="verdict=RISKY"
+                        #     ))
+                        #     self._show_risky_auth_dialog()
+                        #     st.session_state.is_processing = False
+                        #     st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
+                        #     st.stop()
                             
-                        mensagens_bloqueio = {
-                            "SUSPECT": "⚠️ Prompt SUSPEITO detectado. Por favor, reformule sua solicitação.",
-                            "UNCERTAIN": "🔍 Veredito INCERTO. Tente descrever sua intenção de forma mais clara.",
-                            "UNSAFE": "🛑 Bloqueio Crítico: Violação de política de segurança detectada."
-                        }
+                    mensagens_bloqueio = {
+                        "SUSPECT": "⚠️ Prompt SUSPEITO detectado.",
+                        "UNCERTAIN": "🔍 Veredito INCERTO.",
+                        "UNSAFE": "🛑 Bloqueio Crítico: Segurança violada.",
+                        "RISKY": "⚠️ Veredito: RISKY (Captura de tela solicitada)."
+                    }
                         
-                        texto_alerta = mensagens_bloqueio.get(veredito, f"Bloqueio por política: {veredito}")
-                        self.logger.warning(format_audit_log(
-                            actor=ctx["user"],
-                            action="GATEWAY_BLOCK",
-                            resource="prompt",
-                            outcome="BLOCKED",
-                            source_ip=ctx["ip"],
-                            context_data=f"verdict={veredito}"
-                        ))
-                        st.warning(texto_alerta)
-                        
-                        return self._create_mock_response(texto_alerta)
+                    # texto_alerta = mensagens_bloqueio.get(veredito, f"Bloqueio por política: {veredito}")
+                    # self.logger.warning(format_audit_log(
+                    #     actor=ctx["user"],
+                    #     action="GATEWAY_BLOCK",
+                    #     resource="prompt",
+                    #     outcome="BLOCKED",
+                    #     source_ip=ctx["ip"],
+                    #     context_data=f"verdict={veredito}"
+                    # ))
+                    #     st.warning(texto_alerta)
+                    
+                    self._trigger_test_refresh()
+                    return self._create_mock_response(texto_alerta)
 
-                except requests.exceptions.RequestException as e:
-                    st.error(f"⚠️ Falha de comunicação com o Gateway: {e}")
-                    st.session_state.is_processing = False
-                    st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
-                    st.stop()
-                except json.JSONDecodeError:
-                    st.error("❌ Erro: O Gateway não retornou um JSON válido.")
-                    st.session_state.is_processing = False
-                    st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
-                    st.stop()
+            except requests.exceptions.RequestException as e:
+                st.error(f"⚠️ Falha de comunicação com o Gateway: {e}")
+                st.session_state.is_processing = False
+                st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
+                st.stop()
+            except json.JSONDecodeError:
+                st.error("❌ Erro: O Gateway não retornou um JSON válido.")
+                st.session_state.is_processing = False
+                st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
+                st.stop()
 
-        # Fluxo Normal (OpenAI)
+        # Fluxo Normal (OpenAI) - COMENTADO PARA TESTES
+        """
         request_start = self.export_service.record_request_start()
         response = self.llm_client.complete_chat(tools)
         self.export_service.record_request_end(request_start, response)
@@ -373,6 +374,37 @@ class ChatService:
         ))
         
         return response
+        """
+
+        # Chamada para a nova função que dropa a requisição
+        return self.process_test_drop_request(tools)
+
+    def process_test_drop_request(self, tools=[]):
+        """
+        [TEMPORÁRIO] Dropa a requisição para OpenAI e sinaliza prontidão para captura.
+        """
+        with st.chat_message("assistant"):
+            st.info("✅ **[TEST_MODE] Veredito: SAFE. Requisição retida (Bypass OpenAI).**")
+        
+        self._trigger_test_refresh()
+        return self._create_mock_response("SAFE_DROPPED")
+
+    def _trigger_test_refresh(self):
+        """Sinaliza para o crawler e agenda o refresh da página."""
+        st.components.v1.html(
+            """
+            <script>
+            window.parent.document.body.setAttribute('data-agentk-ready', 'true');
+            setTimeout(function() {
+                window.parent.location.reload();
+            }, 3000);
+            </script>
+            """,
+            height=0
+        )
+        st.session_state.llm_client.history = []
+        st.session_state.is_processing = False
+        st.stop()
 
     def _create_mock_response(self, content):
         """Helper para criar a estrutura que o resolve_chat espera."""
