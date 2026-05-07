@@ -308,39 +308,36 @@ class ChatService:
                     context_data=f"test_mode=true, verdict={veredito}"
                 ))
 
+                mensagens_gateway = {
+                    "SAFE": "✅ Veredito SAFE recebido. Requisição retida para teste e próximo prompt liberado.",
+                    "SUSPECT": "⚠️ Prompt SUSPEITO detectado.",
+                    "UNCERTAIN": "🔍 Veredito INCERTO.",
+                    "UNSAFE": "🛑 Bloqueio Crítico: Segurança violada.",
+                    "RISKY": "⚠️ Veredito RISKY recebido. Requisição retida para teste e próximo prompt liberado."
+                }
+                texto_alerta = mensagens_gateway.get(veredito, f"Bloqueio por política: {veredito}")
+
+                if veredito in {"SAFE", "RISKY"}:
+                    self.logger.info(format_audit_log(
+                        actor=ctx["user"],
+                        action="TEST_FLOW_CONTINUE",
+                        resource="prompt",
+                        outcome="DROPPED_AFTER_GATEWAY",
+                        source_ip=ctx["ip"],
+                        context_data=f"verdict={veredito}"
+                    ))
+                    self._trigger_test_refresh()
+                    return self._create_mock_response(texto_alerta)
+
                 if veredito != "SAFE":
-                        # TODO: [TEMPORÁRIO] Bloco RISKY desabilitado para testes — reativar antes do deploy
-                        # if veredito == "RISKY":
-                        #     self.logger.warning(format_audit_log(
-                        #         actor=ctx["user"],
-                        #         action="GATEWAY_BLOCK",
-                        #         resource="prompt",
-                        #         outcome="BLOCKED_PENDING_AUTH",
-                        #         source_ip=ctx["ip"],
-                        #         context_data="verdict=RISKY"
-                        #     ))
-                        #     self._show_risky_auth_dialog()
-                        #     st.session_state.is_processing = False
-                        #     st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
-                        #     st.stop()
-                            
-                    mensagens_bloqueio = {
-                        "SUSPECT": "⚠️ Prompt SUSPEITO detectado.",
-                        "UNCERTAIN": "🔍 Veredito INCERTO.",
-                        "UNSAFE": "🛑 Bloqueio Crítico: Segurança violada.",
-                        "RISKY": "⚠️ Veredito: RISKY (Captura de tela solicitada)."
-                    }
-                        
-                    # texto_alerta = mensagens_bloqueio.get(veredito, f"Bloqueio por política: {veredito}")
-                    # self.logger.warning(format_audit_log(
-                    #     actor=ctx["user"],
-                    #     action="GATEWAY_BLOCK",
-                    #     resource="prompt",
-                    #     outcome="BLOCKED",
-                    #     source_ip=ctx["ip"],
-                    #     context_data=f"verdict={veredito}"
-                    # ))
-                    #     st.warning(texto_alerta)
+                    self.logger.warning(format_audit_log(
+                        actor=ctx["user"],
+                        action="GATEWAY_BLOCK",
+                        resource="prompt",
+                        outcome="BLOCKED",
+                        source_ip=ctx["ip"],
+                        context_data=f"verdict={veredito}"
+                    ))
                     
                     self._trigger_test_refresh()
                     return self._create_mock_response(texto_alerta)
