@@ -403,34 +403,32 @@ class ChatService:
     def _trigger_test_refresh(self):
         """Sinaliza para o crawler que o processamento foi concluído.
 
-        O reload foi removido pois causava race condition: o crawler enviava o
-        próximo prompt em ~1s, mas a página recarregava em 3s matando a requisição
-        em andamento. O main.py já emite removeAttribute no início de cada novo
-        prompt, garantindo o ciclo correto do atributo sem reload.
+        Mecanismo: grava '_signal_ready=True' no session_state e chama st.rerun().
+        No início do próximo run (contexto raso), main.py lê o flag, emite o JS
+        e o limpa. Isso é mais robusto do que emitir st.components.v1.html de
+        dentro de contextos aninhados (spinner → process_llm_request → aqui),
+        onde o delta pode não ser flushed antes do st.stop() encerrar o run.
         """
         self.logger.info(format_audit_log(
             actor="Gateway-System",
             action="TRIGGER_REFRESH",
             resource="data-agentk-ready",
-            outcome="STAGE_1_BEFORE_JS",
+            outcome="STAGE_1_SET_SIGNAL_READY",
             source_ip="internal",
-            context_data="reload=false, is_processing=True"
+            context_data="signal_ready=True, will_rerun=True"
         ))
-        st.components.v1.html(
-            "<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>",
-            height=1
-        )
+        st.session_state.llm_client.history = []
+        st.session_state.is_processing = False
+        st.session_state['_signal_ready'] = True
         self.logger.info(format_audit_log(
             actor="Gateway-System",
             action="TRIGGER_REFRESH",
             resource="data-agentk-ready",
-            outcome="STAGE_2_JS_QUEUED",
+            outcome="STAGE_2_CALLING_RERUN",
             source_ip="internal",
-            context_data="history_will_clear=true, calling_st_stop=true"
+            context_data="signal_ready=True"
         ))
-        st.session_state.llm_client.history = []
-        st.session_state.is_processing = False
-        st.stop()
+        st.rerun()
 
     def _create_mock_response(self, content):
         """Helper para criar a estrutura que o resolve_chat espera."""

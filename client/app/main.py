@@ -61,6 +61,17 @@ st.markdown('<div class="main-content">', unsafe_allow_html=True)
 if 'is_processing' not in st.session_state:
     st.session_state.is_processing = False
 
+# Emite sinal de conclusão para o crawler via session_state + rerun.
+# O _trigger_test_refresh() grava '_signal_ready=True' e chama st.rerun();
+# no novo run (contexto raso), este bloco emite o JS e limpa o flag.
+# Mais robusto do que emitir st.components de dentro de contextos aninhados.
+if st.session_state.get('_signal_ready', False):
+    st.session_state['_signal_ready'] = False
+    st.components.v1.html(
+        "<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>",
+        height=1
+    )
+
 # Renderiza histórico do chat
 chat_service.render_chat_history()
 
@@ -97,8 +108,10 @@ if prompt or resume_risky:
             if response is not None:
                 chat_service.resolve_chat(response)
     st.session_state.is_processing = False
-    # Sinaliza fim para automação
-    st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
+    # Nota: o sinal data-agentk-ready é gerenciado por _trigger_test_refresh()
+    # via session_state['_signal_ready'] + st.rerun(). A emissão explícita aqui
+    # foi removida pois era height=0 (não confiável) e nunca era alcançada
+    # já que st.rerun() aborta o run antes desta linha.
 
 # Fecha o container principal
 st.markdown('</div>', unsafe_allow_html=True)
