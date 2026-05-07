@@ -9,6 +9,7 @@ from app.services.export_service import ExportService
 import streamlit as st
 import json
 import datetime
+import time
 import urllib.parse
 import requests
 
@@ -249,6 +250,7 @@ class ChatService:
                     gateway_url = gateway_url.replace("http://", "https://")
 
                 # ---- Step 1: submit assíncrono à fila do Gateway ----
+                t_submit_start = time.monotonic()
                 submit_response = requests.post(
                     gateway_url,
                     json={"prompt": ultimo_prompt},
@@ -256,6 +258,15 @@ class ChatService:
                     timeout=30,
                     verify=False
                 )
+                t_submit_elapsed = (time.monotonic() - t_submit_start) * 1000
+                self.logger.info(format_audit_log(
+                    actor=ctx["user"],
+                    action="GATEWAY_SUBMIT",
+                    resource="prompt",
+                    outcome=str(submit_response.status_code),
+                    source_ip=ctx["ip"],
+                    context_data=f"elapsed_ms={t_submit_elapsed:.0f}"
+                ))
 
                 if submit_response.status_code == 202:
                     submit_data = submit_response.json()
@@ -271,12 +282,30 @@ class ChatService:
                     )
 
                     # ---- Step 2: long-poll ----
+                    t_poll_start = time.monotonic()
+                    self.logger.info(format_audit_log(
+                        actor=ctx["user"],
+                        action="GATEWAY_POLL_START",
+                        resource=job_id,
+                        outcome="WAITING",
+                        source_ip=ctx["ip"],
+                        context_data=f"timeout_s=130"
+                    ))
                     result_response = requests.get(
                         result_url,
                         headers={"X-Test-Flow": "true"},
                         timeout=130,
                         verify=False
                     )
+                    t_poll_elapsed = (time.monotonic() - t_poll_start) * 1000
+                    self.logger.info(format_audit_log(
+                        actor=ctx["user"],
+                        action="GATEWAY_POLL_END",
+                        resource=job_id,
+                        outcome=str(result_response.status_code),
+                        source_ip=ctx["ip"],
+                        context_data=f"elapsed_ms={t_poll_elapsed:.0f}"
+                    ))
                     dados_gateway = result_response.json()
 
                         # Tratar caso em que o servidor ainda está processando (timeout do servidor)
@@ -372,18 +401,33 @@ class ChatService:
         return self._create_mock_response("SAFE_DROPPED")
 
     def _trigger_test_refresh(self):
-        """Sinaliza para o crawler e agenda o refresh da página."""
+        """Sinaliza para o crawler que o processamento foi concluído.
+
+        O reload foi removido pois causava race condition: o crawler enviava o
+        próximo prompt em ~1s, mas a página recarregava em 3s matando a requisição
+        em andamento. O main.py já emite removeAttribute no início de cada novo
+        prompt, garantindo o ciclo correto do atributo sem reload.
+        """
+        self.logger.info(format_audit_log(
+            actor="Gateway-System",
+            action="TRIGGER_REFRESH",
+            resource="data-agentk-ready",
+            outcome="STAGE_1_BEFORE_JS",
+            source_ip="internal",
+            context_data="reload=false, is_processing=True"
+        ))
         st.components.v1.html(
-            """
-            <script>
-            window.parent.document.body.setAttribute('data-agentk-ready', 'true');
-            setTimeout(function() {
-                window.parent.location.reload();
-            }, 3000);
-            </script>
-            """,
-            height=0
+            "<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>",
+            height=1
         )
+        self.logger.info(format_audit_log(
+            actor="Gateway-System",
+            action="TRIGGER_REFRESH",
+            resource="data-agentk-ready",
+            outcome="STAGE_2_JS_QUEUED",
+            source_ip="internal",
+            context_data="history_will_clear=true, calling_st_stop=true"
+        ))
         st.session_state.llm_client.history = []
         st.session_state.is_processing = False
         st.stop()
