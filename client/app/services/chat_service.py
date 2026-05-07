@@ -310,48 +310,33 @@ class ChatService:
 
                 mensagens_gateway = {
                     "SAFE": "✅ Veredito SAFE recebido. Requisição retida para teste e próximo prompt liberado.",
-                    "SUSPECT": "⚠️ Prompt SUSPEITO detectado.",
-                    "UNCERTAIN": "🔍 Veredito INCERTO.",
-                    "UNSAFE": "🛑 Bloqueio Crítico: Segurança violada.",
+                    "SUSPECT": "⚠️ Prompt SUSPEITO detectado. Requisição retida para teste e próximo prompt liberado.",
+                    "UNCERTAIN": "🔍 Veredito INCERTO. Requisição retida para teste e próximo prompt liberado.",
+                    "UNSAFE": "🛑 Veredito UNSAFE detectado. Requisição retida para teste e próximo prompt liberado.",
                     "RISKY": "⚠️ Veredito RISKY recebido. Requisição retida para teste e próximo prompt liberado."
                 }
-                texto_alerta = mensagens_gateway.get(veredito, f"Bloqueio por política: {veredito}")
+                texto_alerta = mensagens_gateway.get(veredito, f"Veredito {veredito}. Requisição retida para teste e próximo prompt liberado.")
 
-                if veredito in {"SAFE", "RISKY"}:
-                    self.logger.info(format_audit_log(
-                        actor=ctx["user"],
-                        action="TEST_FLOW_CONTINUE",
-                        resource="prompt",
-                        outcome="DROPPED_AFTER_GATEWAY",
-                        source_ip=ctx["ip"],
-                        context_data=f"verdict={veredito}"
-                    ))
-                    self._trigger_test_refresh()
-                    return self._create_mock_response(texto_alerta)
+                self.logger.info(format_audit_log(
+                    actor=ctx["user"],
+                    action="TEST_FLOW_CONTINUE",
+                    resource="prompt",
+                    outcome="DROPPED_AFTER_GATEWAY",
+                    source_ip=ctx["ip"],
+                    context_data=f"verdict={veredito}"
+                ))
 
-                if veredito != "SAFE":
-                    self.logger.warning(format_audit_log(
-                        actor=ctx["user"],
-                        action="GATEWAY_BLOCK",
-                        resource="prompt",
-                        outcome="BLOCKED",
-                        source_ip=ctx["ip"],
-                        context_data=f"verdict={veredito}"
-                    ))
-                    
-                    self._trigger_test_refresh()
-                    return self._create_mock_response(texto_alerta)
+                self._trigger_test_refresh()
+                return self._create_mock_response(texto_alerta)
 
             except requests.exceptions.RequestException as e:
-                st.error(f"⚠️ Falha de comunicação com o Gateway: {e}")
-                st.session_state.is_processing = False
-                st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
-                st.stop()
+                st.warning(f"⚠️ Falha de comunicação com o Gateway: {e}. Prosseguindo para o próximo prompt de teste.")
+                self._trigger_test_refresh()
+                return self._create_mock_response("GATEWAY_REQUEST_ERROR")
             except json.JSONDecodeError:
-                st.error("❌ Erro: O Gateway não retornou um JSON válido.")
-                st.session_state.is_processing = False
-                st.components.v1.html("<script>window.parent.document.body.setAttribute('data-agentk-ready', 'true');</script>", height=0)
-                st.stop()
+                st.warning("❌ O Gateway não retornou JSON válido. Prosseguindo para o próximo prompt de teste.")
+                self._trigger_test_refresh()
+                return self._create_mock_response("GATEWAY_JSON_ERROR")
 
         # Fluxo Normal (OpenAI) - COMENTADO PARA TESTES
         """
